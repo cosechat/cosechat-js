@@ -98,6 +98,11 @@ npm start          # page on http://localhost:8080, with live reload
 npm run echo-bot   # optional: a bot in the same room that echoes what you send it
 ```
 
+It is also published to GitHub Pages on every push to main
+(<https://cosechat.github.io/cosechat-js/>, from `.github/workflows/pages.yml`).
+`npm run build:web` builds the same static site into `_site/`: the page, `src/`,
+and the packages its import map points at.
+
 Open the page in two browsers (or one private window) to chat between them.
 The worker is a Cloudflare worker that repeats every WebSocket message to
 everyone else in the room. It's a shared medium, so the pages talk to each

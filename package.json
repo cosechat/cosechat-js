@@ -32,7 +32,8 @@
     "sync-vectors": "node scripts/sync-vectors.js",
     "echo-bot": "node examples/echo-bot.js --interval 600",
     "types": "npx -y -p typescript@5 tsc -p test/types",
-    "start": "npx -y live-server examples/web --mount=/src:./src --mount=/node_modules:./node_modules --watch=examples/web,src"
+    "start": "npx -y live-server examples/web --mount=/src:./src --mount=/node_modules:./node_modules --watch=examples/web,src",
+    "build:web": "node scripts/build-web.js"
   },
   "dependencies": {
     "@noble/ciphers": "^2.0.0",
