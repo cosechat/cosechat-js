@@ -40,7 +40,12 @@ function loadIdentity() {
 const identity = loadIdentity()
 const node = new Node({ identity, appData: new Map([['name', a.name]]), quantumSafeOnly: identity.quantumSafe, log: a.verbose ? console.log : null })
 for (const port of a['ws-server'] || []) node.addRoad(new WebSocketServerRoad({ port: Number(port) }))
-for (const url of a.ws || []) node.addRoad(new WebSocketClientRoad(url))
+for (const url of a.ws || []) {
+  const road = new WebSocketClientRoad(url)
+  // frames sent while a client road is down are dropped: announce once it is up
+  road.onStatus = (up) => up && node.announce({ full: true })
+  node.addRoad(road)
+}
 if (a.udp) {
   const peers = (a['udp-peer'] || []).map((p) => {
     const i = p.lastIndexOf(':')

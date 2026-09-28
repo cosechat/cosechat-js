@@ -3,9 +3,11 @@
 //   WebSocketClientRoad  connects to a server and reconnects when dropped.
 //                        Works in browsers (global WebSocket) and in Node
 //                        (global WebSocket in Node 22+, or pass the `ws` class).
-//   WebSocketServerRoad  Node only, needs the `ws` package: accepts many peers;
-//                        send() goes to all of them. The node behind it (with
-//                        transport: true) relays between its clients.
+//   WebSocketServerRoad  Node only, needs the `ws` package: accepts many peers.
+//                        It is one shared medium, like a LAN: a frame from one
+//                        client reaches the node behind the server and every
+//                        other client. With transport: true that node also
+//                        links the clients to the rest of the mesh.
 
 import { Road } from './road.js'
 
@@ -111,7 +113,9 @@ export class WebSocketServerRoad extends Road {
         ws.on('message', async (data, isBinary) => {
           if (!isBinary) return
           const b = await toBytes(data)
-          if (b) this._deliver(b)
+          if (!b) return
+          this._deliver(b)
+          this._send(b, ws) // the other clients hear it too
         })
         ws.on('close', () => this.clients.delete(ws))
         ws.on('error', () => this.clients.delete(ws))
@@ -134,7 +138,12 @@ export class WebSocketServerRoad extends Road {
   }
 
   async send(frame) {
+    this._send(frame)
+  }
+
+  _send(frame, exclude = null) {
     for (const ws of this.clients) {
+      if (ws === exclude) continue
       try {
         ws.send(frame)
       } catch {
