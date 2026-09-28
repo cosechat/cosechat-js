@@ -13,7 +13,8 @@
     "./roads/*": "./src/roads/*.js"
   },
   "files": [
-    "src"
+    "src",
+    "bin"
   ],
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
@@ -31,5 +32,8 @@
   },
   "optionalDependencies": {
     "ws": "^8.18.0"
+  },
+  "bin": {
+    "cosechat": "bin/cosechat.js"
   }
 }
