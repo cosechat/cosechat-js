@@ -8,15 +8,15 @@ browsers:
 - the Node
 - roads: memory, WebSocket, UDP, shared, and RNode (serialport / Web Serial)
 - a CLI, TypeScript declarations, and storage examples for Node (files) and
-  browsers (IndexedDB, optional passphrase lock)
+  browsers (a simple happy-path web tester on a broadcast worker room)
 
 Conformance holds both ways:
 
 - it passes every Python vector, and Python and stock wolfCOSE (40/40) accept
   its generated vectors
 - the echo bot passes `interop/live.py` 6/6 (WebSocket, UDP)
-- the web example works end to end through Python and JS relays, including
-  LoRa between browsers over emulated RNodes
+- the web tester works end to end through the signal-worker room, with JS and
+  Python peers
 
 ## Left
 

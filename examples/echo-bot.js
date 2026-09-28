@@ -2,9 +2,10 @@
 // came), and it echoes resources too. It announces itself periodically.
 // This is the bot the Python interop/live.py runner checks.
 //
-//   node examples/echo-bot.js --ws-server 4243                 # WebSocket server road
+//   node examples/echo-bot.js                                  # join the web example's room
+//   node examples/echo-bot.js --ws wss://host/ws/room          # join another room
+//   node examples/echo-bot.js --ws-server 47243                # WebSocket server road (for interop/live.py)
 //   node examples/echo-bot.js --udp 47002 --udp-peer 127.0.0.1:47001
-//   node examples/echo-bot.js --ws ws://host:4243              # join a relay
 //   node examples/echo-bot.js --rnode /dev/ttyUSB0 --freq 868000000 --sf 8   # LoRa (npm i serialport)
 //
 // Keys are kept with examples/storage.js in ~/.cosechat/echo-bot-js (ratchets
@@ -49,6 +50,9 @@ if (a.lock && !passphrase) throw new Error('--lock needs the passphrase in COSEC
 const identity = a.ephemeral ? Identity.generate(a.suite) : loadIdentity(a.identity, { suite: a.suite, passphrase })
 const ratchets = a.ephemeral ? null : ratchetsFor(a.identity, identity, { passphrase })
 const node = new Node({ identity, ratchets, appData: new Map([['name', a.name]]), quantumSafeOnly: identity.quantumSafe, log: a.verbose ? console.log : null })
+// with no road given, join the room the web example uses (a broadcast worker)
+const ROOM = 'wss://signal.konsumer.workers.dev/ws/cosechat'
+if (!a['ws-server'] && !a.ws && !a.udp && !a.rnode) a.ws = [ROOM]
 for (const port of a['ws-server'] || []) node.addRoad(new WebSocketServerRoad({ port: Number(port) }))
 for (const url of a.ws || []) {
   const road = new WebSocketClientRoad(url)
@@ -67,7 +71,6 @@ for (const port of a.rnode || []) {
   if (!a.freq) throw new Error('--rnode needs --freq (Hz, as your region allows)')
   node.addRoad(new RNodeRoad(port, { frequency: Number(a.freq), bandwidth: Number(a.bw), sf: Number(a.sf), cr: Number(a.cr), txpower: Number(a.txp) }))
 }
-if (!node.lanes.length) node.addRoad(new WebSocketServerRoad({ port: 4243 }))
 
 node.onMessage(async (m) => {
   console.log(`${toHex(m.sender).slice(0, 12)}: ${JSON.stringify(m.content)}`)

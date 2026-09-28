@@ -21,8 +21,7 @@ Conformance, both ways:
 - the wire-size table (`cosechat sizes`) matches the one in the Python SPEC
 - the JS echo bot passes the Python live runner (`interop/live.py`) 6/6 over
   WebSocket and UDP
-- the web example works through a Python relay, a Python propagation node and a
-  Python peer
+- the web tester chats with JS and Python peers through a signal-worker room
 - key files written by `examples/storage.js` and the Python
   `examples/storage.py` open in either, locked or not
 
@@ -33,7 +32,7 @@ import { Node } from 'cosechat'
 import { WebSocketClientRoad } from 'cosechat/roads/websocket'
 
 const node = new Node({ appData: new Map([['name', 'alice']]) }) // a new pq identity
-const road = new WebSocketClientRoad('ws://localhost:4243')
+const road = new WebSocketClientRoad('wss://signal.konsumer.workers.dev/ws/cosechat')
 road.onStatus = (up) => up && node.announce({ full: true })
 node.addRoad(road)
 node.onMessage((m) => console.log(m.sender, m.content))
@@ -82,37 +81,31 @@ yet on real hardware.
 
 ## Examples
 
-**Web app** (`examples/web/`): Tailwind + daisyUI, loading the library straight
-from `src/` through an import map. You can:
+**Web app** (`examples/web/`): a simple tester for the happy path, with
+Tailwind + daisyUI, loading the library straight from `src/` through an import
+map. When it loads, it:
 
-- make or import an identity
-- connect to a relay, announce, and collect announces
-- find peers by address, address text or contact card
-- chat with receipts
-- use links, file transfer (resources), ratchet rotation and road passphrases
-- leave a message with a propagation node while a peer is offline, then fetch it
+1. makes an identity (kept in IndexedDB)
+2. joins a room on [signal-worker](https://github.com/konsumer/signal-worker)
+   (`wss://signal.konsumer.workers.dev/ws/cosechat`)
+3. announces itself and lists everyone else who announces
+
+Then you pick someone and chat, with delivery receipts.
 
 ```sh
 npm install
-npm run web                       # page on http://localhost:8080, JS relay + propagation node on ws://localhost:4243
-```
-
-To use the Python reference as the relay instead, serve the page without
-`--relay` and run the relay from `../cosechat-py`:
-
-```sh
-node examples/web/serve.js
-uv run examples/chat.py --ws-server 4243 --transport --propagate
+npm start          # page on http://localhost:8080, with live reload
+npm run echo-bot   # optional: a bot in the same room that echoes what you send it
 ```
 
 Open the page in two browsers (or one private window) to chat between them.
-Peers show up when they announce. A peer that was already on the mesh before
-you joined shows up at its next announce, or at once with **Find** by its
-address. The page keeps its keyset and its newest 8 ratchets in IndexedDB.
-**Lock…** encrypts them with a passphrase (scrypt + AES-GCM, the same format
-as the storage examples). In Chrome and Edge it can also use an RNode over Web
-Serial, with or without a relay. `window.cosechat` holds the page state
-(including the node) for poking at from devtools.
+The worker is a Cloudflare worker that repeats every WebSocket message to
+everyone else in the room. It's a shared medium, so the pages talk to each
+other directly, and the worker sees only ciphertext and destination
+addresses. A peer that was already in the room before you joined shows up at
+its next announce (every 30 minutes), or right away if you **Find** its
+address. `window.cosechat` holds the page state, including the node, for
+poking at from devtools.
 
 **Storage** (`examples/storage.js`): the suggested key storage for Node, in
 the same file formats as the Python reference:

@@ -30,9 +30,9 @@
     "test": "node --test \"test/**/*.test.js\"",
     "fmt": "npx -y prettier -w .",
     "sync-vectors": "node scripts/sync-vectors.js",
-    "web": "node examples/web/serve.js --relay --propagate",
-    "echo-bot": "node examples/echo-bot.js --ws-server 4243",
-    "types": "npx -y -p typescript@5 tsc -p test/types"
+    "echo-bot": "node examples/echo-bot.js --interval 600",
+    "types": "npx -y -p typescript@5 tsc -p test/types",
+    "start": "npx -y live-server examples/web --mount=/src:./src --mount=/node_modules:./node_modules --watch=examples/web,src"
   },
   "dependencies": {
     "@noble/ciphers": "^2.0.0",
