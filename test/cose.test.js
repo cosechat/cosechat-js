@@ -70,3 +70,18 @@ test('public keys derive like python', () => {
     if (k.priv && k.pub.length) assert.equal(toHex(Key.fromPrivate(k.alg, k.priv).pub), toHex(k.pub), v.alg)
   }
 })
+
+test('encode always returns a plain Uint8Array (slice copies)', async () => {
+  const { Identity } = await import('../src/identity.js')
+  const { newRatchet } = await import('../src/ratchet.js')
+  const M = await import('../src/message.js')
+  const alice = Identity.generate('prequantum')
+  const bob = Identity.generate('prequantum')
+  const rb = newRatchet(bob.kemAlg)
+  const { sealed } = M.seal(alice, [bob.public()], { content: 'hi', ratchets: () => rb.public() })
+  assert.equal(Object.getPrototypeOf(sealed), Uint8Array.prototype)
+  const copy = sealed.slice()
+  copy[0] ^= 1
+  assert.notEqual(copy[0], sealed[0])
+  assert.deepEqual(cose.decrypt0(sealed, rb).length > 0, true)
+})

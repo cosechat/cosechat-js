@@ -58,8 +58,12 @@ const tags = []
 for (const t of TAGS) tags[t] = Tagged.decoder(t)
 const decodeOptions = { useMaps: true, tags, rejectDuplicateMapKeys: true }
 
+// Always a fresh, plain Uint8Array. In Node, cborg sometimes hands back a
+// Buffer from the shared allocation pool, and Buffer#slice is a view, not a
+// copy: code that copies with slice() would then change the original.
 export function encode(value) {
-  return cborgEncode(value, encodeOptions)
+  const out = cborgEncode(value, encodeOptions)
+  return Object.getPrototypeOf(out) === Uint8Array.prototype ? out : new Uint8Array(out)
 }
 
 export function decode(data) {
