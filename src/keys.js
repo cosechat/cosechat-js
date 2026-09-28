@@ -10,7 +10,6 @@ import { hmac } from '@noble/hashes/hmac.js'
 import { gcm } from '@noble/ciphers/aes.js'
 import { chacha20poly1305 } from '@noble/ciphers/chacha.js'
 import { concat, equal, isBytes, randomBytes } from './bytes.js'
-import { get } from './cbor.js'
 import { AEAD, KDF, KEM, Suite } from './hpke.js'
 
 export class CoseError extends Error {
