@@ -31,7 +31,8 @@
     "cborg": "^6.1.2"
   },
   "optionalDependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "serialport": "^13.0.0"
   },
   "bin": {
     "cosechat": "bin/cosechat.js"

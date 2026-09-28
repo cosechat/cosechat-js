@@ -85,7 +85,7 @@
               <h2 class="card-title">Connection</h2>
               <label class="floating-label">
                 <span>WebSocket relay</span>
-                <input id="url" class="input w-full mono" placeholder="ws://localhost:4243" />
+                <input id="url" class="input w-full mono" placeholder="ws://localhost:4243 (empty: LoRa only)" />
               </label>
               <div class="grid grid-cols-[1fr_auto] gap-2">
                 <label class="floating-label">
@@ -105,6 +105,23 @@
                 <input id="auto-announce" type="checkbox" class="toggle" checked />
                 <span>Announce every 5 minutes</span>
               </label>
+              <details id="lora" class="hidden rounded-box bg-base-200 p-3">
+                <summary class="cursor-pointer font-medium">LoRa: RNode over Web Serial</summary>
+                <div class="flex flex-col gap-3 pt-3">
+                  <label class="label cursor-pointer justify-start gap-3">
+                    <input id="lora-on" type="checkbox" class="toggle toggle-info" />
+                    <span>Also use an RNode (asks for the serial port on Connect)</span>
+                  </label>
+                  <p class="text-xs opacity-60">Use a frequency your region allows. With both roads, this page links LoRa and the relay only for itself; run a transport node to bridge them for others.</p>
+                  <div class="grid grid-cols-2 gap-2">
+                    <label class="floating-label"><span>Frequency (Hz)</span><input id="lora-freq" type="number" class="input input-sm w-full" placeholder="Frequency (Hz)" /></label>
+                    <label class="floating-label"><span>Bandwidth (Hz)</span><input id="lora-bw" type="number" class="input input-sm w-full" value="125000" placeholder="Bandwidth (Hz)" /></label>
+                    <label class="floating-label"><span>Spreading factor</span><input id="lora-sf" type="number" min="5" max="12" class="input input-sm w-full" value="8" placeholder="Spreading factor" /></label>
+                    <label class="floating-label"><span>Coding rate</span><input id="lora-cr" type="number" min="5" max="8" class="input input-sm w-full" value="5" placeholder="Coding rate" /></label>
+                    <label class="floating-label"><span>TX power (dBm)</span><input id="lora-txp" type="number" min="0" max="37" class="input input-sm w-full" value="7" placeholder="TX power (dBm)" /></label>
+                  </div>
+                </div>
+              </details>
               <div class="flex gap-2">
                 <button id="connect" class="btn btn-primary flex-1">Connect</button>
                 <button id="announce" class="btn" disabled>Announce</button>

@@ -5,6 +5,7 @@
 //   node examples/echo-bot.js --ws-server 4243                 # WebSocket server road
 //   node examples/echo-bot.js --udp 47002 --udp-peer 127.0.0.1:47001
 //   node examples/echo-bot.js --ws ws://host:4243              # join a relay
+//   node examples/echo-bot.js --rnode /dev/ttyUSB0 --freq 868000000 --sf 8   # LoRa (npm i serialport)
 //
 // --identity FILE keeps the keyset (private keys: keep it safe) so the
 // address survives restarts. Ratchets live in memory only.
@@ -13,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { Identity, Node } from '../src/index.js'
 import { toHex } from '../src/bytes.js'
+import { RNodeRoad } from '../src/roads/rnode.js'
 import { UDPRoad } from '../src/roads/udp.js'
 import { WebSocketClientRoad, WebSocketServerRoad } from '../src/roads/websocket.js'
 
@@ -22,6 +24,12 @@ const { values: a } = parseArgs({
     ws: { type: 'string', multiple: true },
     udp: { type: 'string' },
     'udp-peer': { type: 'string', multiple: true },
+    rnode: { type: 'string', multiple: true },
+    freq: { type: 'string' },
+    bw: { type: 'string', default: '125000' },
+    sf: { type: 'string', default: '8' },
+    cr: { type: 'string', default: '5' },
+    txp: { type: 'string', default: '7' },
     identity: { type: 'string' },
     suite: { type: 'string', default: 'pq' },
     name: { type: 'string', default: 'echo-bot (js)' },
@@ -53,6 +61,10 @@ if (a.udp) {
   })
   node.addRoad(new UDPRoad({ port: Number(a.udp), peers: peers.length ? peers : null }))
 }
+for (const port of a.rnode || []) {
+  if (!a.freq) throw new Error('--rnode needs --freq (Hz, as your region allows)')
+  node.addRoad(new RNodeRoad(port, { frequency: Number(a.freq), bandwidth: Number(a.bw), sf: Number(a.sf), cr: Number(a.cr), txpower: Number(a.txp) }))
+}
 if (!node.lanes.length) node.addRoad(new WebSocketServerRoad({ port: 4243 }))
 
 node.onMessage(async (m) => {
@@ -74,7 +86,12 @@ node.onAnnounce((ann, path) => {
   console.log(`* ${name || '?'} ${toHex(ann.address)} (${path.hops} hop(s))`)
 })
 
-await node.start()
+try {
+  await node.start()
+} catch (e) {
+  console.error(`could not start: ${e.message}`)
+  process.exit(1)
+}
 console.log(`echo bot ${toHex(node.address)} on ${node.lanes.map((l) => l.road.name).join(', ')}, announcing every ${a.interval}s`)
 const loop = async () => {
   await node.announce()

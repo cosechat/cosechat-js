@@ -4,6 +4,7 @@
 
 import { Identity, Key, MemoryRatchets, Node, RoadAuth, contact } from 'cosechat/index.js'
 import { WebSocketClientRoad } from 'cosechat/roads/websocket.js'
+import { RNodeRoad } from 'cosechat/roads/rnode.js'
 import { fromHex, toHex } from 'cosechat/bytes.js'
 import { decode, encode } from 'cosechat/cbor.js'
 import { getAlg } from 'cosechat/keys.js'
@@ -33,6 +34,7 @@ const state = {
   identity: null,
   node: null,
   road: null,
+  rnode: null,
   ratchets: null,
   connected: false,
   peers: new Map(), // hex -> { address, name, hops, quantumSafe, kem, propagation, seen, unread }
@@ -262,7 +264,7 @@ function renderMessages() {
 }
 
 function updateComposer() {
-  const ready = state.connected && state.selected
+  const ready = isOnline() && state.selected
   $('text').disabled = $('send').disabled = !ready
   $('text').placeholder = ready ? 'message' : 'pick a peer, then type a message'
 }
@@ -285,6 +287,26 @@ async function connect() {
     toast('This identity is pre-quantum: turn off "quantum-safe peers only" or make a pq identity', 'warning')
     return
   }
+  // Web Serial wants the port picked straight from the click, before any await
+  let serialPort = null
+  if ($('lora-on').checked) {
+    const freq = Number($('lora-freq').value)
+    if (!freq) {
+      toast('set a LoRa frequency (one your region allows)', 'warning')
+      return
+    }
+    saveLora()
+    try {
+      serialPort = await navigator.serial.requestPort()
+    } catch {
+      toast('no serial port picked', 'warning')
+      return
+    }
+  }
+  if (!url && !serialPort) {
+    toast('give a relay URL, or turn on LoRa', 'warning')
+    return
+  }
   const node = new Node({
     identity: state.identity,
     appData: new Map([['name', $('name').value.trim() || 'web']]),
@@ -295,15 +317,24 @@ async function connect() {
   })
   const pass = $('passphrase').value
   const auth = pass ? RoadAuth.fromPassphrase(pass, $('mode').value) : null
-  const road = new WebSocketClientRoad(url)
-  road.onStatus = async (up) => {
-    state.connected = up
-    renderStatus()
-    updateComposer()
-    log(up ? `connected to ${url}` : state.road === road ? 'disconnected (retrying)' : 'disconnected')
-    if (up) await announce(true)
+  let road = null
+  if (url) {
+    road = new WebSocketClientRoad(url)
+    road.onStatus = async (up) => {
+      state.connected = up
+      renderStatus()
+      updateComposer()
+      log(up ? `connected to ${url}` : state.road === road ? 'disconnected (retrying)' : 'disconnected')
+      if (up) await announce(true)
+    }
+    node.addRoad(road, auth)
   }
-  node.addRoad(road, auth)
+  let rnode = null
+  if (serialPort) {
+    const n = (id) => Number($(id).value)
+    rnode = new RNodeRoad(serialPort, { frequency: n('lora-freq'), bandwidth: n('lora-bw'), sf: n('lora-sf'), cr: n('lora-cr'), txpower: n('lora-txp'), name: 'rnode' })
+    node.addRoad(rnode, auth)
+  }
 
   node.onAnnounce((ann, path) => {
     const p = upsertPeer(ann.address, { name: nameOf(ann.appData), hops: path.hops, quantumSafe: ann.identity.quantumSafe, kem: getAlg(ann.ratchet.alg).name, propagation: Boolean(ann.services & 1), seen: Date.now() })
@@ -339,7 +370,20 @@ async function connect() {
 
   state.node = node
   state.road = road
-  await node.start()
+  state.rnode = rnode
+  try {
+    await node.start()
+  } catch (e) {
+    state.node = state.road = state.rnode = null
+    await node.stop().catch(() => {})
+    throw e
+  }
+  if (rnode) {
+    log(`RNode up: firmware ${rnode.firmware.join('.')}, ${Math.round(rnode.bitrate)} bit/s on air`)
+    renderStatus()
+    updateComposer()
+    await announce(true)
+  }
   $('connect').textContent = 'Disconnect'
   $('connect').classList.replace('btn-primary', 'btn-outline')
   for (const id of ['announce', 'find-go', 'copy-card', 'rotate', 'fetch']) $(id).disabled = false
@@ -352,6 +396,7 @@ async function disconnect() {
   await state.node.stop()
   state.node = null
   state.road = null
+  state.rnode = null
   state.connected = false
   $('connect').textContent = 'Connect'
   $('connect').classList.replace('btn-outline', 'btn-primary')
@@ -361,10 +406,23 @@ async function disconnect() {
   log('stopped')
 }
 
+const isOnline = () => state.connected || Boolean(state.rnode?.online)
+
 function renderStatus() {
   const el = $('status')
-  el.className = `badge ${state.connected ? 'badge-success' : state.node ? 'badge-warning' : 'badge-neutral'}`
-  el.textContent = state.connected ? 'online' : state.node ? 'connecting…' : 'offline'
+  const on = isOnline()
+  el.className = `badge ${on ? 'badge-success' : state.node ? 'badge-warning' : 'badge-neutral'}`
+  el.textContent = on ? (state.rnode?.online ? (state.connected ? 'online + LoRa' : 'LoRa') : 'online') : state.node ? 'connecting…' : 'offline'
+}
+
+function saveLora() {
+  store.set('lora', Object.fromEntries(['freq', 'bw', 'sf', 'cr', 'txp'].map((k) => [k, $('lora-' + k).value])))
+}
+
+function loadLora() {
+  if (!('serial' in navigator)) return // Web Serial: Chrome and Edge
+  $('lora').classList.remove('hidden')
+  for (const [k, v] of Object.entries(store.get('lora', {}))) if (v) $('lora-' + k).value = v
 }
 
 function renderRatchet() {
@@ -504,6 +562,7 @@ function init() {
   renderPeers()
   renderHeader()
   renderMessages()
+  loadLora()
 
   for (const t of document.querySelectorAll('[data-tab]')) t.onclick = () => setTab(t.dataset.tab)
   $('connect').onclick = () => connect().catch((e) => toast(e.message, 'error'))
