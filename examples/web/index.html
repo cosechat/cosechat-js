@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en" data-theme="dim">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cosechat web</title>
+    <link rel="icon" href="data:," />
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "cosechat/": "/src/",
+          "@noble/hashes/": "/node_modules/@noble/hashes/",
+          "@noble/curves/": "/node_modules/@noble/curves/",
+          "@noble/ciphers/": "/node_modules/@noble/ciphers/",
+          "@noble/post-quantum/": "/node_modules/@noble/post-quantum/",
+          "cborg": "/node_modules/cborg/cborg.js"
+        }
+      }
+    </script>
+    <style>
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .break-all {
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-base-200">
+    <div class="navbar bg-base-100 shadow-sm gap-2 px-4">
+      <div class="flex-1 flex items-center gap-2">
+        <span class="text-xl font-bold">cosechat</span>
+        <span class="badge badge-ghost hidden sm:inline-flex">post-quantum mesh chat</span>
+      </div>
+      <div id="status" class="badge badge-neutral">offline</div>
+      <select id="theme" class="select select-sm w-28" aria-label="theme">
+        <option>dim</option>
+        <option>light</option>
+        <option>dark</option>
+        <option>cupcake</option>
+        <option>synthwave</option>
+        <option>nord</option>
+      </select>
+    </div>
+
+    <main class="grid gap-4 p-4 lg:grid-cols-[22rem_1fr] max-w-7xl mx-auto">
+      <!-- left column -->
+      <section class="flex flex-col gap-4 min-w-0">
+        <div role="tablist" class="tabs tabs-box">
+          <button role="tab" class="tab tab-active" data-tab="me">Me</button>
+          <button role="tab" class="tab" data-tab="peers">Peers <span id="peer-count" class="badge badge-sm ml-1">0</span></button>
+          <button role="tab" class="tab" data-tab="tools">Tools</button>
+          <button role="tab" class="tab" data-tab="log">Log</button>
+        </div>
+
+        <!-- me: identity + connection -->
+        <div data-panel="me" class="flex flex-col gap-4">
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Identity</h2>
+              <div id="identity"></div>
+              <label class="floating-label">
+                <span>Display name (announced)</span>
+                <input id="name" class="input w-full" placeholder="Display name" />
+              </label>
+              <div class="flex flex-wrap gap-2">
+                <select id="suite" class="select select-sm w-36" aria-label="suite">
+                  <option value="pq">pq (ML-DSA-65)</option>
+                  <option value="hybrid">hybrid (Ed25519 + ML-DSA)</option>
+                  <option value="prequantum">prequantum (Ed25519)</option>
+                </select>
+                <button id="new-identity" class="btn btn-sm">New identity</button>
+                <button id="export" class="btn btn-sm btn-ghost">Export</button>
+                <label class="btn btn-sm btn-ghost">Import<input id="import" type="file" class="hidden" /></label>
+              </div>
+              <p class="text-xs opacity-60">The keyset is kept in this browser's localStorage, unencrypted. Fine for playing; not for real secrets.</p>
+            </div>
+          </div>
+
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Connection</h2>
+              <label class="floating-label">
+                <span>WebSocket relay</span>
+                <input id="url" class="input w-full mono" placeholder="ws://localhost:4243" />
+              </label>
+              <div class="grid grid-cols-[1fr_auto] gap-2">
+                <label class="floating-label">
+                  <span>Road passphrase (optional)</span>
+                  <input id="passphrase" type="password" class="input w-full" placeholder="Road passphrase (optional)" />
+                </label>
+                <select id="mode" class="select w-28" aria-label="road auth mode">
+                  <option value="mac">mac</option>
+                  <option value="encrypt">encrypt</option>
+                </select>
+              </div>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input id="qso" type="checkbox" class="toggle toggle-success" checked />
+                <span>Quantum-safe peers only</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-3">
+                <input id="auto-announce" type="checkbox" class="toggle" checked />
+                <span>Announce every 5 minutes</span>
+              </label>
+              <div class="flex gap-2">
+                <button id="connect" class="btn btn-primary flex-1">Connect</button>
+                <button id="announce" class="btn" disabled>Announce</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- peers -->
+        <div data-panel="peers" class="hidden flex-col gap-4">
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Find someone</h2>
+              <div class="join w-full">
+                <input id="find" class="input join-item w-full mono" placeholder="address, address text or cosechat: card" />
+                <button id="find-go" class="btn join-item" disabled>Go</button>
+              </div>
+            </div>
+          </div>
+          <ul id="peers" class="menu bg-base-100 rounded-box shadow-sm w-full"></ul>
+        </div>
+
+        <!-- tools -->
+        <div data-panel="tools" class="hidden flex-col gap-4">
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Contact card</h2>
+              <p class="text-sm opacity-70">A signed full announce. Anyone who adds it can message you once the mesh has a path.</p>
+              <textarea id="card" class="textarea w-full mono text-xs h-24" readonly placeholder="connect first"></textarea>
+              <button id="copy-card" class="btn btn-sm" disabled>Copy</button>
+            </div>
+          </div>
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Ratchet</h2>
+              <p class="text-sm opacity-70">Messages are sealed to your announced ratchet. Rotating it gives forward secrecy: in this page old ratchets live in memory only.</p>
+              <div id="ratchet" class="mono text-xs break-all"></div>
+              <button id="rotate" class="btn btn-sm" disabled>Rotate and announce</button>
+            </div>
+          </div>
+          <div class="card bg-base-100 shadow-sm">
+            <div class="card-body gap-3">
+              <h2 class="card-title">Propagation</h2>
+              <p class="text-sm opacity-70">Propagation nodes hold sealed messages for peers that are offline.</p>
+              <div id="prop-nodes" class="text-sm"></div>
+              <button id="fetch" class="btn btn-sm" disabled>Fetch my messages</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- log -->
+        <div data-panel="log" class="hidden flex-col gap-2">
+          <div class="flex justify-between items-center">
+            <label class="label cursor-pointer gap-2"><input id="verbose" type="checkbox" class="checkbox checkbox-sm" /> verbose</label>
+            <button id="clear-log" class="btn btn-xs btn-ghost">clear</button>
+          </div>
+          <pre id="log" class="bg-base-100 rounded-box p-3 text-xs h-[32rem] overflow-auto whitespace-pre-wrap break-all"></pre>
+        </div>
+      </section>
+
+      <!-- chat -->
+      <section class="card bg-base-100 shadow-sm min-w-0 h-[calc(100vh-7rem)] min-h-[28rem]">
+        <div id="chat-header" class="flex flex-wrap items-center gap-2 border-b border-base-300 p-4"></div>
+        <div id="messages" class="flex-1 overflow-auto p-4"></div>
+        <form id="composer" class="flex flex-col gap-2 border-t border-base-300 p-4">
+          <div class="flex gap-2 items-center">
+            <input id="title" class="input input-sm w-40" placeholder="title (optional)" />
+            <label class="label cursor-pointer gap-2 text-sm"><input id="via-prop" type="checkbox" class="checkbox checkbox-sm" /> via propagation node</label>
+          </div>
+          <div class="join w-full">
+            <label class="btn join-item" title="send a file (resource over a link)">📎<input id="file" type="file" class="hidden" /></label>
+            <input id="text" class="input join-item w-full" placeholder="pick a peer, then type a message" autocomplete="off" disabled />
+            <button id="send" class="btn btn-primary join-item" disabled>Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <dialog id="confirm" class="modal">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg">Replace your identity?</h3>
+        <p class="py-4">Your current address and its private keys will be gone from this browser (export them first if you want to keep them).</p>
+        <div class="modal-action">
+          <form method="dialog" class="flex gap-2">
+            <button class="btn" value="no">Cancel</button>
+            <button class="btn btn-error" value="yes">Replace</button>
+          </form>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toasts" class="toast toast-top toast-end z-50 pointer-events-none mt-14"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

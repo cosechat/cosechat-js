@@ -18,7 +18,9 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "fmt": "npx -y prettier -w .",
-    "sync-vectors": "node scripts/sync-vectors.js"
+    "sync-vectors": "node scripts/sync-vectors.js",
+    "web": "node examples/web/serve.js --relay --propagate",
+    "echo-bot": "node examples/echo-bot.js --ws-server 4243"
   },
   "dependencies": {
     "@noble/ciphers": "^2.0.0",
