@@ -8,20 +8,31 @@
     "node": ">=20"
   },
   "exports": {
-    ".": "./src/index.js",
-    "./*": "./src/*.js",
-    "./roads/*": "./src/roads/*.js"
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./roads/*": {
+      "types": "./types/roads/*.d.ts",
+      "default": "./src/roads/*.js"
+    },
+    "./*": {
+      "types": "./types/*.d.ts",
+      "default": "./src/*.js"
+    }
   },
   "files": [
     "src",
-    "bin"
+    "bin",
+    "types"
   ],
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "fmt": "npx -y prettier -w .",
     "sync-vectors": "node scripts/sync-vectors.js",
     "web": "node examples/web/serve.js --relay --propagate",
-    "echo-bot": "node examples/echo-bot.js --ws-server 4243"
+    "echo-bot": "node examples/echo-bot.js --ws-server 4243",
+    "types": "npx -y -p typescript@5 tsc -p test/types"
   },
   "dependencies": {
     "@noble/ciphers": "^2.0.0",
@@ -36,5 +47,6 @@
   },
   "bin": {
     "cosechat": "bin/cosechat.js"
-  }
+  },
+  "types": "./types/index.d.ts"
 }
