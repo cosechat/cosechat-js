@@ -22,6 +22,7 @@ const state = {
   connected: false,
   peers: new Map(), // hex address -> { address, name, seen, unread }
   chats: new Map(), // hex address -> [{ dir, text, time, status }]
+  links: new Map(), // hex address -> Promise<LinkKeys> (a session, in flight or open)
   selected: null
 }
 
@@ -122,10 +123,38 @@ function chatOf(k) {
   return state.chats.get(k)
 }
 
+// A link makes every message one small frame. Without one a message is a sealed
+// packet (~10 fragments on LoRa, ~13 s of air), which on a slow radio collides
+// with the peer's own transmissions and is lost. Open it when you pick someone
+// and reuse it; a failed handshake just means that message goes out sealed.
+function linkTo(address) {
+  const k = hex(address)
+  if (!state.node) return Promise.resolve(null)
+  const open = state.node.linkTo(address)
+  if (open) return Promise.resolve(open)
+  let p = state.links.get(k)
+  if (!p) {
+    p = state.node
+      .openLink(address, 30)
+      .then((keys) => {
+        log(`link to ${k.slice(0, 8)} open`)
+        return keys
+      })
+      .catch((e) => {
+        log(`no link to ${k.slice(0, 8)}: ${e.message}`)
+        state.links.delete(k) // not cached: try again on the next send
+        return null
+      })
+    state.links.set(k, p)
+  }
+  return p
+}
+
 function select(k) {
   state.selected = k
   const p = state.peers.get(k)
   if (p) p.unread = 0
+  linkTo(fromHex(k)) // start the session while they read, so the first message is one frame
   renderPeers()
   renderHeader()
   renderMessages()
@@ -189,6 +218,7 @@ async function send(e) {
   chatOf(k).push(entry)
   renderMessages()
   try {
+    await linkTo(fromHex(k))
     const m = await state.node.send(fromHex(k), text)
     entry.status = 'sent'
     renderMessages()

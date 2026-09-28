@@ -6,7 +6,9 @@ browsers:
 - the data library (COSE, HPKE, identities, ratchets, messages, announces,
   links, resources, propagation, packets, road auth, contacts)
 - the Node
-- roads: memory, WebSocket, UDP, shared, and RNode (serialport / Web Serial)
+- roads: memory, WebSocket, UDP, shared, RNode (serialport / Web Serial), and
+  the anonymous ones: wifi_raw (codec only in Node) and ble (BlueZ + dbus-next,
+  Linux)
 - a CLI, TypeScript declarations, and storage examples for Node (files) and
   browsers (a simple happy-path web tester on a broadcast worker room)
 
@@ -20,8 +22,19 @@ Conformance holds both ways:
 
 ## Left
 
-- [ ] **Real RNode hardware.** The road is tested against an emulated RNode
-      (Node and Web Serial) only, as is the Python one (its TODO item 19).
+- [x] **Real RNode hardware.** Tested over the air on two RNodes with
+      `test/rnode.hardware.test.js` (skipped unless two serial RNodes are
+      attached; `COSECHAT_RNODE_PORTS`, `COSECHAT_RNODE_FREQ`). Opening the port
+      resets the device, so the road retries detect and config until it
+      answers.
+- [x] **Anonymous broadcast roads.** `roads/ble` advertises and scans through
+      BlueZ (`dbus-next`, optional dependency) with the C reference's framing
+      (247-byte MTU); the D-Bus path is pinned by a fake-bus test in
+      `test/ble.test.js`. Needs an adapter that supports extended advertising,
+      and (honest gap vs the ESP32 road) BlueZ always puts the adapter address
+      in the advertisement. `roads/wifi_raw` is codec-only in Node: there is no
+      AF_PACKET, so it starts with a clear error; use the Python road, a
+      native helper behind the same codec, or MemoryHub.
 - [ ] **GitHub remote and CI** (ask the user first). `.github/workflows/ci.yml`
       is ready: npm test, types and prettier on Node 22 and 24.
 - [ ] **Publish to npm** (ask the user first). `npm pack --dry-run` gives a

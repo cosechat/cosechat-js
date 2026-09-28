@@ -60,14 +60,16 @@ and ratchets live is up to the application (the ratchet provider is the
 
 ## Roads
 
-| road                                    | where                                      | notes                                              |
-| --------------------------------------- | ------------------------------------------ | -------------------------------------------------- |
-| `roads/memory`                          | anywhere                                   | in-process hub for tests and simulations           |
-| `roads/websocket` `WebSocketClientRoad` | browsers, Node 22+                         | reconnects; `onStatus(up)`                         |
-| `roads/websocket` `WebSocketServerRoad` | Node (`ws` package)                        | one shared medium: clients hear each other         |
-| `roads/udp`                             | Node                                       | broadcast by default, or unicast `peers`           |
-| `roads/shared`                          | anywhere                                   | several nodes (identities) on one road             |
-| `roads/rnode`                           | Node (`serialport`), browsers (Web Serial) | LoRa through an [RNode](https://unsigned.io/rnode) |
+| road                                    | where                                      | notes                                                  |
+| --------------------------------------- | ------------------------------------------ | ------------------------------------------------------ |
+| `roads/memory`                          | anywhere                                   | in-process hub for tests and simulations               |
+| `roads/websocket` `WebSocketClientRoad` | browsers, Node 22+                         | reconnects; `onStatus(up)`                             |
+| `roads/websocket` `WebSocketServerRoad` | Node (`ws` package)                        | one shared medium: clients hear each other             |
+| `roads/udp`                             | Node                                       | broadcast by default, or unicast `peers`               |
+| `roads/shared`                          | anywhere                                   | several nodes (identities) on one road                 |
+| `roads/rnode`                           | Node (`serialport`), browsers (Web Serial) | LoRa through an [RNode](https://unsigned.io/rnode)     |
+| `roads/wifi_raw`                        | anywhere                                   | raw 802.11 action frames: codec only in JS (no AF_PACKET) |
+| `roads/ble`                             | Linux                                      | anonymous BLE extended advertising (BlueZ + `dbus-next`) |
 
 ```js
 import { RNodeRoad } from 'cosechat/roads/rnode'
@@ -76,8 +78,30 @@ node.addRoad(new RNodeRoad(await navigator.serial.requestPort(), { frequency: 86
 ```
 
 The RNode road takes its bitrate from the radio settings, so announces stay
-within their airtime budget. It is tested against an emulated RNode only, not
-yet on real hardware.
+within their airtime budget. It is tested against an emulated RNode and, when
+two serial RNodes are attached, over the air
+(`test/rnode.hardware.test.js`; `COSECHAT_RNODE_PORTS`, `COSECHAT_RNODE_FREQ`;
+skipped otherwise).
+
+The web example and `examples/echo-bot.js` default to the same broadcast room
+(`wss://signal.konsumer.workers.dev/ws/cosechat`). To reach a LoRa mesh from a
+browser, run the Python bridge on that room:
+`uv run ../cosechat-py/examples/lora_gateway.py <serialport> --freq <Hz>`. It
+is a transport node, so announces and messages cross between the room and the
+radio; see [../cosechat-py/examples/README.md](../cosechat-py/examples/README.md).
+
+The two *anonymous* roads go out with no association and no connection, like
+LoRa. `roads/ble` is real on Linux: both directions go through BlueZ's D-Bus
+API (`npm i dbus-next` — pure JS, no build step), and the adapter must support
+extended advertising (BlueZ reports the ceiling as
+`LEAdvertisingManager1.SupportedCapabilities.MaxAdvLen`; the road needs 251).
+One honest difference from the ESP32 reference: BlueZ always puts the adapter
+address in the advertisement, so a host node is not address-less the way
+`road_ble.cpp`'s anonymous advertisement is. `roads/wifi_raw` is codec-only in
+JS — Node exposes no AF_PACKET — so for that medium use the Python road, a
+native helper behind the same codec, or `MemoryHub`. Both roads are MTU-matched
+to the C reference (247 and 252), so a custom transport built on the exported
+codec interoperates with an ESP32.
 
 ## Examples
 
@@ -90,7 +114,10 @@ map. When it loads, it:
    (`wss://signal.konsumer.workers.dev/ws/cosechat`)
 3. announces itself and lists everyone else who announces
 
-Then you pick someone and chat, with delivery receipts.
+Then you pick someone and chat, with delivery receipts. Picking a peer opens a
+**link** to them: on a slow radio a sealed message is ~10 fragments and one
+lost fragment costs the whole message, while over a link each message is a
+single frame.
 
 ```sh
 npm install
@@ -151,6 +178,7 @@ them together with a usage sample.
 
 ```sh
 npm test              # vectors, mesh, roads, emulated RNode, storage, interop
+                      # (real-RNode test runs only with two RNodes attached)
 npm run types         # type-check the declarations
 npm run sync-vectors  # copy vectors from ../cosechat-py/tests/vectors
 npm run fmt           # prettier (see .prettierrc)

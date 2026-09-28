@@ -96,7 +96,6 @@ export class RNodeRoad extends Road {
     this.errors = []
 
     this._decoder = new kiss.Decoder(HW_MTU * 2 + 8)
-    this._waiters = []
     this._ready = true
     this._queue = []
   }
@@ -114,10 +113,25 @@ export class RNodeRoad extends Road {
     this.serial = await this._open()
     this.serial.onData = (d) => this._onBytes(d)
     if (this.bootDelay) await sleep(this.bootDelay)
-    await this._write(new Uint8Array([kiss.FEND, CMD_DETECT, DETECT_REQ, kiss.FEND, CMD_FW_VERSION, 0x00, kiss.FEND, CMD_PLATFORM, 0x00, kiss.FEND, CMD_MCU, 0x00, kiss.FEND]))
-    await this._wait(() => this.detected && this.firmware, 'device did not answer detect')
+    // opening the port may reset the device (ESP32 DTR/RTS), and the firmware
+    // only answers once it is up, so keep asking until it replies
+    const probe = new Uint8Array([kiss.FEND, CMD_DETECT, DETECT_REQ, kiss.FEND, CMD_FW_VERSION, 0x00, kiss.FEND, CMD_PLATFORM, 0x00, kiss.FEND, CMD_MCU, 0x00, kiss.FEND])
+    await this._probe(probe, () => this.detected && this.firmware, 'device did not answer detect')
     const [maj, min] = this.firmware
     if (maj < REQUIRED_FIRMWARE[0] || (maj === REQUIRED_FIRMWARE[0] && min < REQUIRED_FIRMWARE[1])) throw new RNodeError(`firmware ${maj}.${min} too old, need ${REQUIRED_FIRMWARE.join('.')}`)
+    // the device may still be booting: resend the config until it echoes it back
+    const same = () => Object.keys(this.config).every((k) => this.reported[k] === this.config[k])
+    const end = Date.now() + this.timeout * 1000
+    while (!(this.radioState === RADIO_STATE_ON && same())) {
+      if (this.errors.length) throw new RNodeError(this.errors[this.errors.length - 1])
+      if (Date.now() > end) throw new RNodeError(`${this}: radio did not confirm configuration`)
+      await this._configure()
+      await sleep(0.5)
+    }
+    await super.start()
+  }
+
+  async _configure() {
     const c = this.config
     await this._command(CMD_FREQUENCY, u32(c.frequency))
     await this._command(CMD_BANDWIDTH, u32(c.bandwidth))
@@ -128,9 +142,6 @@ export class RNodeRoad extends Road {
     if (this.stAlock != null) await this._command(CMD_ST_ALOCK, u16(Math.round(this.stAlock * 100)))
     if (this.ltAlock != null) await this._command(CMD_LT_ALOCK, u16(Math.round(this.ltAlock * 100)))
     await this._command(CMD_RADIO_STATE, new Uint8Array([RADIO_STATE_ON]))
-    const same = () => Object.keys(c).every((k) => this.reported[k] === c[k])
-    await this._wait(() => this.radioState === RADIO_STATE_ON && same(), 'radio did not confirm configuration')
-    await super.start()
   }
 
   async stop() {
@@ -169,33 +180,19 @@ export class RNodeRoad extends Road {
     await this.serial.write(data)
   }
 
-  // resolve once cond() holds, re-checked whenever the device says something
-  _wait(cond, err) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this._waiters = this._waiters.filter((w) => w !== check)
-        reject(new RNodeError(`${this}: ${err}`))
-      }, this.timeout * 1000)
-      const check = () => {
-        if (this.errors.length) {
-          clearTimeout(timer)
-          reject(new RNodeError(this.errors[this.errors.length - 1]))
-          return true
-        }
-        if (cond()) {
-          clearTimeout(timer)
-          resolve()
-          return true
-        }
-        return false
-      }
-      if (!check()) this._waiters.push(check)
-    })
+  // send data until cond() holds, or timeout runs out (for a booting device)
+  async _probe(data, cond, err) {
+    const end = Date.now() + this.timeout * 1000
+    while (!cond()) {
+      if (this.errors.length) throw new RNodeError(this.errors[this.errors.length - 1])
+      if (Date.now() > end) throw new RNodeError(`${this}: ${err}`)
+      await this._write(data)
+      await sleep(0.5)
+    }
   }
 
   _onBytes(data) {
     for (const [cmd, body] of this._decoder.feed(data)) this._onCommand(cmd, body)
-    this._waiters = this._waiters.filter((check) => !check())
   }
 
   _onCommand(cmd, d) {
