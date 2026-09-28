@@ -73,10 +73,11 @@
                   <option value="prequantum">prequantum (Ed25519)</option>
                 </select>
                 <button id="new-identity" class="btn btn-sm">New identity</button>
+                <button id="lock" class="btn btn-sm btn-ghost">Lock…</button>
                 <button id="export" class="btn btn-sm btn-ghost">Export</button>
                 <label class="btn btn-sm btn-ghost">Import<input id="import" type="file" class="hidden" /></label>
               </div>
-              <p class="text-xs opacity-60">The keyset is kept in this browser's localStorage, unencrypted. Fine for playing; not for real secrets.</p>
+              <p class="text-xs opacity-60">Keys (keyset and recent ratchets) are kept in this browser's IndexedDB. <b>Lock…</b> encrypts them with a passphrase (scrypt + AES-GCM, the same format as the Node and Python storage examples). Export writes the plain keyset: keep that file safe.</p>
             </div>
           </div>
 
@@ -211,6 +212,33 @@
           </form>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="unlock" class="modal">
+      <form id="unlock-form" class="modal-box flex flex-col gap-3">
+        <h3 class="font-bold text-lg">Unlock your keys</h3>
+        <p class="text-sm opacity-70">This browser holds a cosechat identity locked with a passphrase.</p>
+        <input id="unlock-pass" type="password" class="input w-full" placeholder="passphrase" autocomplete="current-password" autofocus />
+        <p id="unlock-error" class="text-error text-sm"></p>
+        <div class="modal-action">
+          <button type="button" id="unlock-reset" class="btn btn-ghost">Start over with a new identity</button>
+          <button id="unlock-go" class="btn btn-primary">Unlock</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="lock-dialog" class="modal">
+      <form id="lock-form" class="modal-box flex flex-col gap-3">
+        <h3 class="font-bold text-lg">Lock keys with a passphrase</h3>
+        <p class="text-sm opacity-70">Leave both empty to remove the lock. There is no recovery: forget the passphrase and the identity is gone (unless you exported it).</p>
+        <input id="lock-pass" type="password" class="input w-full" placeholder="new passphrase" autocomplete="new-password" />
+        <input id="lock-pass2" type="password" class="input w-full" placeholder="again" autocomplete="new-password" />
+        <p id="lock-error" class="text-error text-sm"></p>
+        <div class="modal-action">
+          <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+          <button id="lock-go" class="btn btn-primary">Save</button>
+        </div>
+      </form>
     </dialog>
 
     <div id="toasts" class="toast toast-top toast-end z-50 pointer-events-none mt-14"></div>

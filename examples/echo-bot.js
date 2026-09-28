@@ -7,12 +7,16 @@
 //   node examples/echo-bot.js --ws ws://host:4243              # join a relay
 //   node examples/echo-bot.js --rnode /dev/ttyUSB0 --freq 868000000 --sf 8   # LoRa (npm i serialport)
 //
-// --identity FILE keeps the keyset (private keys: keep it safe) so the
-// address survives restarts. Ratchets live in memory only.
+// Keys are kept with examples/storage.js in ~/.cosechat/echo-bot-js (ratchets
+// in echo-bot-js.ratchets): the address stays the same across restarts,
+// ratchets rotate every 30 minutes and are deleted after 10 days. --lock
+// encrypts them at rest (passphrase from COSECHAT_PASSPHRASE). --ephemeral
+// keeps everything in memory instead.
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { Identity, Node } from '../src/index.js'
+import { HOME, announceForever, loadIdentity, ratchetsFor } from './storage.js'
 import { toHex } from '../src/bytes.js'
 import { RNodeRoad } from '../src/roads/rnode.js'
 import { UDPRoad } from '../src/roads/udp.js'
@@ -30,7 +34,9 @@ const { values: a } = parseArgs({
     sf: { type: 'string', default: '8' },
     cr: { type: 'string', default: '5' },
     txp: { type: 'string', default: '7' },
-    identity: { type: 'string' },
+    identity: { type: 'string', default: join(HOME, 'echo-bot-js') },
+    lock: { type: 'boolean' },
+    ephemeral: { type: 'boolean' },
     suite: { type: 'string', default: 'pq' },
     name: { type: 'string', default: 'echo-bot (js)' },
     interval: { type: 'string', default: '1800' },
@@ -38,15 +44,11 @@ const { values: a } = parseArgs({
   }
 })
 
-function loadIdentity() {
-  if (a.identity && existsSync(a.identity)) return Identity.fromBytes(new Uint8Array(readFileSync(a.identity)))
-  const ident = Identity.generate(a.suite)
-  if (a.identity) writeFileSync(a.identity, ident.toBytes(true), { mode: 0o600 })
-  return ident
-}
-
-const identity = loadIdentity()
-const node = new Node({ identity, appData: new Map([['name', a.name]]), quantumSafeOnly: identity.quantumSafe, log: a.verbose ? console.log : null })
+const passphrase = a.lock ? process.env.COSECHAT_PASSPHRASE : null
+if (a.lock && !passphrase) throw new Error('--lock needs the passphrase in COSECHAT_PASSPHRASE')
+const identity = a.ephemeral ? Identity.generate(a.suite) : loadIdentity(a.identity, { suite: a.suite, passphrase })
+const ratchets = a.ephemeral ? null : ratchetsFor(a.identity, identity, { passphrase })
+const node = new Node({ identity, ratchets, appData: new Map([['name', a.name]]), quantumSafeOnly: identity.quantumSafe, log: a.verbose ? console.log : null })
 for (const port of a['ws-server'] || []) node.addRoad(new WebSocketServerRoad({ port: Number(port) }))
 for (const url of a.ws || []) {
   const road = new WebSocketClientRoad(url)
@@ -93,11 +95,7 @@ try {
   process.exit(1)
 }
 console.log(`echo bot ${toHex(node.address)} on ${node.lanes.map((l) => l.road.name).join(', ')}, announcing every ${a.interval}s`)
-const loop = async () => {
-  await node.announce()
-  setTimeout(loop, Number(a.interval) * 1000)
-}
-loop()
+announceForever(node, Number(a.interval), ratchets)
 process.on('SIGINT', async () => {
   await node.stop()
   process.exit(0)

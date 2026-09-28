@@ -8,6 +8,7 @@ import { RNodeRoad } from 'cosechat/roads/rnode.js'
 import { fromHex, toHex } from 'cosechat/bytes.js'
 import { decode, encode } from 'cosechat/cbor.js'
 import { getAlg } from 'cosechat/keys.js'
+import { KeyStore, WrongPassphrase, isLocked, unlock } from './keystore.js'
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
@@ -60,57 +61,117 @@ function toast(text, kind = 'info') {
   setTimeout(() => el.remove(), 4000)
 }
 
-// --- ratchets ---
+// --- keys: identity and ratchets, in IndexedDB (optionally locked) ---
 
 // Ratchet storage is the application's policy. This page keeps the newest
-// RATCHETS_KEPT in localStorage (per identity), so messages sealed to a
-// ratchet we announced still open after a reconnect or reload (e.g. ones a
-// propagation node held for us). Older ones are gone: forward secrecy.
-// Like the identity, they are stored unencrypted: fine for playing only.
+// RATCHETS_KEPT per identity, so messages sealed to a ratchet we announced
+// still open after a reconnect or reload (e.g. ones a propagation node held
+// for us). Older ones are gone: forward secrecy.
 const RATCHETS_KEPT = 8
+let keystore = null
 
-class LocalRatchets extends MemoryRatchets {
-  constructor(identity) {
+class StoredRatchets extends MemoryRatchets {
+  constructor(identity, keys) {
+    super(identity.kemAlg, keys, RATCHETS_KEPT)
+    this.slot = 'ratchets:' + toHex(identity.address)
+  }
+
+  static async load(identity) {
     const slot = 'ratchets:' + toHex(identity.address)
     let keys = []
     try {
-      keys = (store.get(slot, []) || []).map((h) => Key.fromCose(decode(fromHex(h))))
+      const legacy = store.get(slot) // the old localStorage format: hex COSE_Keys
+      if (legacy && !(await keystore.raw(slot))) {
+        await keystore.writePrivate(slot, encode(legacy.map((h) => decode(fromHex(h)))))
+        try {
+          localStorage.removeItem('cosechat:' + slot)
+        } catch {}
+      }
+      const raw = await keystore.readPrivate(slot)
+      if (raw) keys = decode(raw).map((m) => Key.fromCose(m))
     } catch (e) {
       log('stored ratchets are unreadable, starting fresh:', e)
     }
-    super(identity.kemAlg, keys, RATCHETS_KEPT)
-    this.slot = slot
+    return new StoredRatchets(identity, keys)
   }
 
   rotate() {
     const k = super.rotate()
-    store.set(
-      this.slot,
-      this.keys().map((r) => toHex(encode(r.toCose(true))))
-    )
+    this.save()
     return k
+  }
+
+  save() {
+    const data = encode(this.keys().map((r) => r.toCose(true)))
+    return keystore.writePrivate(this.slot, data).catch((e) => log('could not save ratchets:', e))
   }
 }
 
-// --- identity ---
+async function saveIdentity(ident) {
+  await keystore.writePrivate('identity', ident.toBytes(true))
+  store.set('suite', suiteOf(ident))
+}
 
-function loadIdentity() {
-  const saved = store.get('identity')
-  if (saved) {
+async function newIdentity(suite) {
+  const ident = Identity.generate(suite)
+  await saveIdentity(ident)
+  return ident
+}
+
+// ask until the passphrase opens the stored identity (or the user starts over)
+function askPassphrase(raw) {
+  return new Promise((resolve) => {
+    const dlg = $('unlock')
+    $('unlock-error').textContent = ''
+    $('unlock-form').onsubmit = async (e) => {
+      e.preventDefault()
+      const pass = $('unlock-pass').value
+      $('unlock-go').classList.add('btn-disabled')
+      try {
+        const bytes = await unlock(raw, pass)
+        keystore.passphrase = pass
+        $('unlock-pass').value = ''
+        dlg.close()
+        resolve(bytes)
+      } catch (err) {
+        $('unlock-error').textContent = err instanceof WrongPassphrase ? 'Wrong passphrase.' : err.message
+      } finally {
+        $('unlock-go').classList.remove('btn-disabled')
+      }
+    }
+    $('unlock-reset').onclick = () => {
+      dlg.close()
+      resolve(null)
+    }
+    dlg.showModal()
+  })
+}
+
+async function loadIdentity() {
+  // move a keyset from the old localStorage format into the key store
+  const legacy = store.get('identity')
+  if (legacy && !(await keystore.raw('identity'))) {
+    await keystore.set('identity', fromHex(legacy))
     try {
-      return Identity.fromBytes(fromHex(saved))
+      localStorage.removeItem('cosechat:identity')
+    } catch {}
+  }
+  let raw = await keystore.raw('identity')
+  if (raw && isLocked(raw)) raw = await askPassphrase(raw)
+  if (raw) {
+    try {
+      return Identity.fromBytes(raw)
     } catch (e) {
       log('saved identity is unreadable, making a new one:', e)
     }
   }
+  keystore.passphrase = null
   return newIdentity(store.get('suite', 'pq'))
 }
 
-function newIdentity(suite) {
-  const ident = Identity.generate(suite)
-  store.set('identity', toHex(ident.toBytes(true)))
-  store.set('suite', suite)
-  return ident
+async function setIdentity(ident) {
+  state.identity = ident
+  state.ratchets = await StoredRatchets.load(ident)
 }
 
 function suiteOf(ident) {
@@ -127,6 +188,7 @@ function renderIdentity() {
       <span class="badge ${qs ? 'badge-success' : 'badge-warning'}">${qs ? 'quantum-safe' : 'pre-quantum'}</span>
       <span class="badge badge-ghost">${esc(suiteOf(i))}</span>
       <span class="badge badge-ghost">${esc(i.signKeys.map((k) => k.algorithm.name).join(' + '))}</span>
+      ${keystore?.passphrase ? '<span class="badge badge-info">locked</span>' : ''}
     </div>
     <div class="text-xs opacity-60">address</div>
     <div class="mono text-sm break-all">${esc(toHex(i.address))}</div>
@@ -545,9 +607,9 @@ function setTab(name) {
   }
 }
 
-function init() {
-  state.identity = loadIdentity()
-  state.ratchets = new LocalRatchets(state.identity)
+async function init() {
+  keystore = await KeyStore.open()
+  await setIdentity(await loadIdentity())
   const theme = store.get('theme', 'dim')
   document.documentElement.dataset.theme = theme
   $('theme').value = theme
@@ -605,8 +667,7 @@ function init() {
   $('confirm').onclose = async () => {
     if ($('confirm').returnValue !== 'yes') return
     if (state.node) await disconnect()
-    state.identity = newIdentity($('suite').value)
-    state.ratchets = new LocalRatchets(state.identity)
+    await setIdentity(await newIdentity($('suite').value))
     state.peers.clear()
     state.chats.clear()
     state.selected = null
@@ -631,9 +692,8 @@ function init() {
       const ident = Identity.fromBytes(new Uint8Array(await f.arrayBuffer()))
       if (!ident.hasPrivate) throw new Error('that keyset has no private keys')
       if (state.node) await disconnect()
-      state.identity = ident
-      state.ratchets = new LocalRatchets(ident)
-      store.set('identity', toHex(ident.toBytes(true)))
+      await setIdentity(ident)
+      await saveIdentity(ident)
       renderIdentity()
       toast('identity imported', 'success')
     } catch (err) {
@@ -641,9 +701,37 @@ function init() {
     }
   }
   $('clear-log').onclick = () => ($('log').textContent = '')
+  $('lock').onclick = () => {
+    $('lock-pass').value = ''
+    $('lock-pass2').value = ''
+    $('lock-error').textContent = ''
+    $('lock-dialog').showModal()
+  }
+  $('lock-form').onsubmit = async (e) => {
+    e.preventDefault()
+    const [p1, p2] = [$('lock-pass').value, $('lock-pass2').value]
+    if (p1 !== p2) {
+      $('lock-error').textContent = 'The two entries differ.'
+      return
+    }
+    $('lock-go').classList.add('btn-disabled')
+    try {
+      keystore.passphrase = p1 || null
+      await saveIdentity(state.identity)
+      await state.ratchets.save()
+      $('lock-dialog').close()
+      renderIdentity()
+      toast(p1 ? 'keys locked with your passphrase' : 'lock removed', 'success')
+    } finally {
+      $('lock-go').classList.remove('btn-disabled')
+    }
+  }
   log(`identity ${toHex(state.identity.address)} (${suiteOf(state.identity)})`)
 }
 
-init()
+init().catch((e) => {
+  log('could not start:', e)
+  toast(e.message, 'error')
+})
 // for poking at from devtools: cosechat.node, cosechat.peers, ...
 window.cosechat = state
