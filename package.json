@@ -1,0 +1,33 @@
+{
+  "name": "cosechat",
+  "version": "0.1.0",
+  "description": "Post-quantum mesh messaging over COSE/CBOR, inspired by Reticulum/LXMF (Node and browsers)",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*.js",
+    "./roads/*": "./src/roads/*.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "fmt": "npx -y prettier -w .",
+    "sync-vectors": "node scripts/sync-vectors.js"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.0.0",
+    "@noble/curves": "^2.0.0",
+    "@noble/hashes": "^2.0.0",
+    "@noble/post-quantum": "^0.7.1",
+    "cborg": "^6.1.2"
+  },
+  "optionalDependencies": {
+    "ws": "^8.18.0"
+  }
+}
